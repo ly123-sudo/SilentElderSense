@@ -1,4 +1,5 @@
 from quart import Blueprint, request, jsonify
+from datetime import datetime
 from .models import User, get_db
 
 auth_bp = Blueprint('auth', __name__)
@@ -41,10 +42,19 @@ async def login():
 
     # 验证密码
     if user and user.check_password(data['password']):
+        # 确定用户角色
+        role = 'admin' if user.is_admin else 'family'
+
         return jsonify({
             'message': '登录成功',
-            'user_id': user.id,
-            'username': user.username
+            'token': f'token-{user.id}-{int(datetime.utcnow().timestamp())}',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'name': user.username,  # 使用用户名作为显示名称
+                'role': role
+            }
         }), 200
     else:
         return jsonify({'error': '用户名或密码错误'}), 401

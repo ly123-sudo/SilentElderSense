@@ -1,6 +1,7 @@
-from quart import Quart, request
+from quart import Quart, request, websocket
 from config import Config
 from auth import init_db, auth_bp
+from websocket_handler import websocket_handler
 
 app = Quart(__name__)
 app.config.from_object(Config)
@@ -24,6 +25,11 @@ async def after_request(response):
 @app.route('/')
 async def index():
     return {'message': 'Backend API is running'}
+
+@app.websocket('/ws/video')
+async def video_websocket():
+    """WebSocket 端点，用于实时视频流处理"""
+    await websocket_handler.handle_connection()
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
