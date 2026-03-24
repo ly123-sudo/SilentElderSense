@@ -6,10 +6,10 @@
         <p class="subtitle">面向独居老人的隐私保护型智能监测平台</p>
       </div>
 
-      <el-form ref="loginFormRef" :model="loginForm" :rules="loginRules" class="login-form">
+      <el-form ref="formRef" :model="formData" :rules="formRules" class="login-form">
         <el-form-item prop="username">
           <el-input
-            v-model="loginForm.username"
+            v-model="formData.username"
             placeholder="请输入用户名"
             size="large"
             prefix-icon="User"
@@ -18,12 +18,21 @@
 
         <el-form-item prop="password">
           <el-input
-            v-model="loginForm.password"
+            v-model="formData.password"
             type="password"
             placeholder="请输入密码"
             size="large"
             prefix-icon="Lock"
-            @keyup.enter="handleLogin"
+            @keyup.enter="handleSubmit"
+          />
+        </el-form-item>
+
+        <el-form-item v-if="isRegisterMode" prop="email">
+          <el-input
+            v-model="formData.email"
+            placeholder="请输入邮箱"
+            size="large"
+            prefix-icon="Message"
           />
         </el-form-item>
 
@@ -33,17 +42,16 @@
             size="large"
             class="login-button"
             :loading="loading"
-            @click="handleLogin"
+            @click="handleSubmit"
           >
-            登录
+            {{ isRegisterMode ? '注册' : '登录' }}
           </el-button>
         </el-form-item>
 
-        <div class="demo-tips">
-          <p>演示账号：</p>
-          <p>管理员：admin / admin123</p>
-          <p>家属：family / family123</p>
-          <p>监护人：monitor / monitor123</p>
+        <div class="switch-mode">
+          <el-button type="text" @click="toggleMode">
+            {{ isRegisterMode ? '已有账号？去登录' : '没有账号？去注册' }}
+          </el-button>
         </div>
       </el-form>
     </div>
@@ -54,40 +62,67 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { login, register } from '@/api/auth'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const loginFormRef = ref(null)
+const formRef = ref(null)
 const loading = ref(false)
+const isRegisterMode = ref(false)
 
-const loginForm = reactive({
+const formData = reactive({
   username: '',
-  password: ''
+  password: '',
+  email: ''
 })
 
-const loginRules = {
+const formRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' }
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' }
+  ],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
   ]
 }
 
-const handleLogin = async () => {
-  if (!loginFormRef.value) return
+const toggleMode = () => {
+  isRegisterMode.value = !isRegisterMode.value
+  formRef.value?.resetFields()
+}
 
-  await loginFormRef.value.validate(async (valid) => {
+const handleSubmit = async () => {
+  if (!formRef.value) return
+
+  await formRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
       try {
-        await authStore.login(loginForm)
-        ElMessage.success('登录成功')
-        router.push('/dashboard')
+        if (isRegisterMode.value) {
+          // 注册
+          await register({
+            username: formData.username,
+            password: formData.password,
+            email: formData.email
+          })
+          ElMessage.success('注册成功，请登录')
+          isRegisterMode.value = false
+        } else {
+          // 登录
+          await authStore.login({
+            username: formData.username,
+            password: formData.password
+          })
+          ElMessage.success('登录成功')
+          router.push('/dashboard')
+        }
       } catch (error) {
-        ElMessage.error(error.message || '用户名或密码错误')
+        ElMessage.error(error.message || '操作失败')
       } finally {
         loading.value = false
       }
@@ -150,22 +185,8 @@ const handleLogin = async () => {
   opacity: 0.9;
 }
 
-.demo-tips {
-  margin-top: 30px;
-  padding: 15px;
-  background: #f5f7fa;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #666;
+.switch-mode {
   text-align: center;
-}
-
-.demo-tips p {
-  margin: 5px 0;
-}
-
-.demo-tips p:first-child {
-  font-weight: 600;
-  color: #333;
+  margin-top: 15px;
 }
 </style>

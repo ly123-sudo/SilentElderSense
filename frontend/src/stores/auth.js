@@ -6,19 +6,21 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const token = ref(localStorage.getItem('token') || null)
 
-  const isAuthenticated = computed(() => !!token.value)
-  const isAdmin = computed(() => user.value?.role === 'admin')
+  const isAuthenticated = computed(() => !!user.value)
+  const isAdmin = computed(() => user.value?.username === 'admin')
 
   const login = async (credentials) => {
     try {
       const response = await loginApi(credentials)
 
-      if (response.token && response.user) {
-        token.value = response.token
-        user.value = response.user
+      // 后端返回格式: { message, user_id, username }
+      if (response.user_id && response.username) {
+        user.value = {
+          id: response.user_id,
+          username: response.username
+        }
 
         // 保存到 localStorage
-        localStorage.setItem('token', token.value)
         localStorage.setItem('user', JSON.stringify(user.value))
 
         return true
