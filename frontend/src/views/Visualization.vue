@@ -7,23 +7,13 @@
         <p class="subtitle">Privacy-Powered Elderly Care Anomaly Detection System</p>
       </div>
       <div class="header-right">
-        <el-button type="primary" :icon="VideoCamera" @click="showVideoUploader = true" class="upload-btn">
+        <el-button type="primary" :icon="VideoCamera" @click="goToMonitor" class="upload-btn">
           视频流上传
         </el-button>
         <div class="current-time">{{ currentTime }}</div>
         <div class="current-date">{{ currentDate }}</div>
       </div>
     </div>
-
-    <!-- 视频流上传对话框 -->
-    <el-dialog
-      v-model="showVideoUploader"
-      title="流式视频上传与实时检测"
-      width="90%"
-      :close-on-click-modal="false"
-    >
-      <VideoStreamUploader />
-    </el-dialog>
 
     <!-- 主要内容区域 -->
     <div class="main-content">
@@ -180,7 +170,13 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { VideoCamera, Warning, Clock, Moon, Bell } from '@element-plus/icons-vue'
-import VideoStreamUploader from '@/components/VideoStreamUploader.vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+const goToMonitor = () => {
+  router.push('/monitor')
+}
 
 const currentTime = ref('')
 const currentDate = ref('')
@@ -189,8 +185,6 @@ const totalEvents = ref(156)
 const highRiskEvents = ref(12)
 const todayEvents = ref(8)
 const accuracy = ref(94.5)
-
-const showVideoUploader = ref(false)
 
 const typeChartRef = ref(null)
 const heatmapChartRef = ref(null)
@@ -336,7 +330,7 @@ const handleResize = () => {
 
 onMounted(() => {
   updateTime()
-  const timeInterval = setInterval(updateTime, 1000)
+  timeInterval = setInterval(updateTime, 1000)
 
   nextTick(() => {
     initTypeChart()
@@ -344,11 +338,15 @@ onMounted(() => {
     initTrendChart()
     window.addEventListener('resize', handleResize)
   })
+})
 
-  onUnmounted(() => {
+let timeInterval = null
+
+onUnmounted(() => {
+  if (timeInterval) {
     clearInterval(timeInterval)
-    window.removeEventListener('resize', handleResize)
-  })
+  }
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
