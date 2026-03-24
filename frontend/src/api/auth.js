@@ -9,26 +9,11 @@ export function login(data) {
   })
 }
 
-// 登出
-export function logout() {
+// 注册
+export function register(data) {
   return request({
-    url: '/logout',
-    method: 'post'
-  })
-}
-
-// 获取用户信息
-export function getUserInfo() {
-  return request({
-    url: '/userinfo',
-    method: 'get'
-  })
-}
-
-// 刷新token
-export function refreshToken() {
-  return request({
-    url: '/refresh',
-    method: 'post'
+    url: '/register',
+    method: 'post',
+    data
   })
 }
