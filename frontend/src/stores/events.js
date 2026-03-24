@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+﻿import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getEvents, getEventDetail, updateEvent, getEventStats, createEvent } from '@/api/events'
 
@@ -17,7 +17,6 @@ export const useEventsStore = defineStore('events', () => {
     per_page: 20
   })
 
-  // 获取事件列表
   const fetchEvents = async (params = {}) => {
     loading.value = true
     try {
@@ -37,7 +36,6 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  // 获取事件详情
   const fetchEventDetail = async (id) => {
     try {
       const response = await getEventDetail(id)
@@ -48,7 +46,6 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  // 更新事件状态
   const updateEventStatus = async (id, data) => {
     try {
       const response = await updateEvent(id, data)
@@ -63,11 +60,11 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  // 获取事件统计
   const fetchStats = async (params = {}) => {
     try {
       const response = await getEventStats(params)
       statistics.value = response
+      updateStatsFormatted()
       return response
     } catch (error) {
       console.error('获取事件统计失败:', error)
@@ -75,7 +72,6 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  // 创建事件
   const addEvent = async (eventData) => {
     try {
       const response = await createEvent(eventData)
@@ -87,28 +83,30 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
-  // 格式化事件数据（后端格式 -> 前端格式）
   const formatEvent = (event) => {
     return {
       id: event.id,
       type: event.event_type?.toLowerCase() || event.type,
       typeName: getTypeName(event.event_type || event.type),
-      riskLevel: (event.risk_level || event.riskLevel)?.toLowerCase(),
+      riskLevel: (event.risk_level || event.riskLevel)?.toUpperCase(),
       riskLevelName: getRiskName(event.risk_level || event.riskLevel),
+      start_time: event.start_time || event.time,
+      end_time: event.end_time,
       time: event.start_time || event.time,
       duration: event.duration || 0,
       status: event.status || 'pending',
       statusName: getStatusName(event.status),
       description: event.notes || event.description || '',
+      notes: event.notes || '',
       location: event.video_id || '',
       confidence: event.confidence || 0.9,
+      frame_count: event.frame_count || 0,
       user_id: event.user_id,
       video_id: event.video_id,
       person_id: event.person_id
     }
   }
 
-  // 获取类型名称
   const getTypeName = (type) => {
     const map = {
       'FALL': '跌倒检测',
@@ -121,7 +119,6 @@ export const useEventsStore = defineStore('events', () => {
     return map[type] || type
   }
 
-  // 获取风险等级名称
   const getRiskName = (level) => {
     const map = {
       'HIGH': '高风险',
@@ -134,7 +131,6 @@ export const useEventsStore = defineStore('events', () => {
     return map[level] || level
   }
 
-  // 获取状态名称
   const getStatusName = (status) => {
     const map = {
       'pending': '待处理',
@@ -145,7 +141,6 @@ export const useEventsStore = defineStore('events', () => {
     return map[status] || status
   }
 
-  // 计算属性：获取各类统计数字（兼容前端旧格式）
   const statsFormatted = ref({
     total: 0,
     today: 0,
@@ -157,7 +152,6 @@ export const useEventsStore = defineStore('events', () => {
     accuracy: 94.5
   })
 
-  // 更新格式化统计
   const updateStatsFormatted = () => {
     const stats = statistics.value
     statsFormatted.value = {

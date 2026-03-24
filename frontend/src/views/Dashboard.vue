@@ -1,6 +1,5 @@
-<template>
+﻿<template>
   <div class="dashboard">
-    <!-- 统计卡片 -->
     <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
         <el-card class="stat-card total">
@@ -59,7 +58,6 @@
       </el-col>
     </el-row>
 
-    <!-- 事件类型统计 -->
     <el-row :gutter="20" class="stats-row">
       <el-col :span="8">
         <el-card class="type-card">
@@ -95,7 +93,6 @@
       </el-col>
     </el-row>
 
-    <!-- 事件列表 -->
     <el-card class="events-card">
       <template #header>
         <div class="card-header">
@@ -180,9 +177,8 @@
       </div>
     </el-card>
 
-    <!-- 事件详情对话框 -->
     <el-dialog v-model="detailDialogVisible" title="事件详情" width="600px">
-      <div v-if="selectedEvent" class="event-detail">
+      <div v-if="selectedEvent" class="event-detail" v-loading="detailLoading">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="事件ID">{{ selectedEvent.id }}</el-descriptions-item>
           <el-descriptions-item label="事件类型">{{ selectedEvent.typeName }}</el-descriptions-item>
@@ -210,11 +206,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useEventsStore } from '@/stores/events'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import { DataLine, Warning, Timer, Bell } from '@element-plus/icons-vue'
+import { getEventDetail } from '@/api/events'
 
 const eventsStore = useEventsStore()
 
@@ -224,6 +221,7 @@ const filterRisk = ref('')
 const currentPage = ref(1)
 const detailDialogVisible = ref(false)
 const selectedEvent = ref(null)
+const detailLoading = ref(false)
 
 const typeChartRef = ref(null)
 const riskChartRef = ref(null)
@@ -300,15 +298,24 @@ const handleEvent = (event) => {
   }).catch(() => {})
 }
 
-const viewDetails = (event) => {
-  selectedEvent.value = event
+const viewDetails = async (event) => {
+  detailLoading.value = true
   detailDialogVisible.value = true
+  
+  try {
+    const detail = await eventsStore.fetchEventDetail(event.id)
+    selectedEvent.value = detail
+  } catch (error) {
+    ElMessage.error('获取事件详情失败')
+    selectedEvent.value = event
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 const updateCharts = () => {
   const stats = eventsStore.statistics
 
-  // 事件类型分布图
   if (typeChart) {
     typeChart.setOption({
       tooltip: { trigger: 'item' },
@@ -326,7 +333,6 @@ const updateCharts = () => {
     })
   }
 
-  // 风险等级分布图
   if (riskChart) {
     riskChart.setOption({
       tooltip: { trigger: 'item' },
@@ -348,7 +354,6 @@ const updateCharts = () => {
     })
   }
 
-  // 处理状态分布图
   if (statusChart) {
     statusChart.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },

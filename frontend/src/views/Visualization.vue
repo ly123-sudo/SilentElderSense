@@ -1,6 +1,5 @@
-<template>
+﻿<template>
   <div class="visualization">
-    <!-- 顶部标题栏 -->
     <div class="header">
       <div class="header-left">
         <h1 class="title">独居老人异常行为识别与应急响应系统</h1>
@@ -15,11 +14,8 @@
       </div>
     </div>
 
-    <!-- 主要内容区域 -->
     <div class="main-content">
-      <!-- 左侧面板 -->
       <div class="left-panel">
-        <!-- 实时统计 -->
         <div class="panel-card">
           <h3 class="panel-title">实时统计</h3>
           <div class="stats-grid">
@@ -42,22 +38,18 @@
           </div>
         </div>
 
-        <!-- 事件类型分布 -->
         <div class="panel-card">
           <h3 class="panel-title">事件类型分布</h3>
           <div ref="typeChartRef" class="chart-container"></div>
         </div>
 
-        <!-- 位置热力图 -->
         <div class="panel-card">
           <h3 class="panel-title">位置热力分布</h3>
           <div ref="heatmapChartRef" class="chart-container"></div>
         </div>
       </div>
 
-      <!-- 中间面板 -->
       <div class="center-panel">
-        <!-- 实时监控区域 -->
         <div class="monitor-card">
           <div class="monitor-header">
             <h3 class="monitor-title">实时监控</h3>
@@ -76,7 +68,7 @@
               <div class="camera-overlay">
                 <div class="overlay-info">
                   <span>客厅摄像头</span>
-                  <span>2026-03-22 15:32:45</span>
+                  <span>{{ currentTime }}</span>
                 </div>
                 <div class="overlay-status">
                   <el-tag type="success" size="small">正常</el-tag>
@@ -86,7 +78,6 @@
           </div>
         </div>
 
-        <!-- 最新事件列表 -->
         <div class="events-card">
           <h3 class="panel-title">最新事件</h3>
           <div class="events-list">
@@ -115,15 +106,12 @@
         </div>
       </div>
 
-      <!-- 右侧面板 -->
       <div class="right-panel">
-        <!-- 风险趋势 -->
         <div class="panel-card">
           <h3 class="panel-title">24小时风险趋势</h3>
           <div ref="trendChartRef" class="chart-container"></div>
         </div>
 
-        <!-- 告警信息 -->
         <div class="panel-card alert-card">
           <h3 class="panel-title">告警信息</h3>
           <div class="alert-list">
@@ -139,7 +127,6 @@
           </div>
         </div>
 
-        <!-- 系统状态 -->
         <div class="panel-card">
           <h3 class="panel-title">系统状态</h3>
           <div class="system-status">
@@ -171,6 +158,8 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { VideoCamera, Warning, Clock, Moon, Bell } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import { getEvents, getEventStats } from '@/api/events'
+import { getAlertHistory, getAlertStats } from '@/api/alerts'
 
 const router = useRouter()
 
@@ -181,9 +170,9 @@ const goToMonitor = () => {
 const currentTime = ref('')
 const currentDate = ref('')
 
-const totalEvents = ref(156)
-const highRiskEvents = ref(12)
-const todayEvents = ref(8)
+const totalEvents = ref(0)
+const highRiskEvents = ref(0)
+const todayEvents = ref(0)
 const accuracy = ref(94.5)
 
 const typeChartRef = ref(null)
@@ -194,28 +183,34 @@ let typeChart = null
 let heatmapChart = null
 let trendChart = null
 
-const recentEvents = ref([
-  { id: 1, type: 'fall', typeName: '跌倒检测', time: '14:32:15', riskLevel: 'high' },
-  { id: 2, type: 'stillness', typeName: '长时间静止', time: '12:15:30', riskLevel: 'medium' },
-  { id: 3, type: 'night_activity', typeName: '夜间异常活动', time: '03:45:22', riskLevel: 'low' },
-  { id: 4, type: 'fall', typeName: '跌倒检测', time: '昨天 18:20', riskLevel: 'high' },
-  { id: 5, type: 'stillness', typeName: '长时间静止', time: '昨天 09:45', riskLevel: 'medium' }
-])
+const recentEvents = ref([])
+const alerts = ref([])
 
-const alerts = ref([
-  { id: 1, level: 'high', message: '检测到高风险跌倒事件', time: '14:32:15' },
-  { id: 2, level: 'medium', message: '长时间静止告警', time: '12:15:30' },
-  { id: 3, level: 'low', message: '夜间异常活动提醒', time: '03:45:22' }
-])
+const eventStats = ref({
+  by_type: {},
+  by_risk: {},
+  by_status: {}
+})
+
+const alertStats = ref({
+  total: 0,
+  sent_count: 0,
+  failed_count: 0
+})
 
 const getRiskLabel = (level) => {
-  const map = { high: '高风险', medium: '中风险', low: '低风险' }
+  const map = { HIGH: '高风险', high: '高风险', MEDIUM: '中风险', medium: '中风险', LOW: '低风险', low: '低风险' }
   return map[level] || level
 }
 
 const getRiskTagType = (level) => {
-  const map = { high: 'danger', medium: 'warning', low: 'info' }
+  const map = { HIGH: 'danger', high: 'danger', MEDIUM: 'warning', medium: 'warning', LOW: 'info', low: 'info' }
   return map[level] || ''
+}
+
+const getTypeLabel = (type) => {
+  const map = { FALL: '跌倒检测', STILLNESS: '长时间静止', NIGHT_ACTIVITY: '夜间异常活动' }
+  return map[type] || type
 }
 
 const updateTime = () => {
@@ -229,17 +224,52 @@ const updateTime = () => {
   })
 }
 
+const loadData = async () => {
+  try {
+    const [eventsRes, statsRes, alertsRes, alertStatsRes] = await Promise.all([
+      getEvents({ per_page: 5 }),
+      getEventStats({ days: 7 }),
+      getAlertHistory({ per_page: 5 }),
+      getAlertStats({ days: 7 })
+    ])
+
+    recentEvents.value = (eventsRes.events || []).map(e => ({
+      id: e.id,
+      type: (e.event_type || '').toLowerCase(),
+      typeName: getTypeLabel(e.event_type),
+      time: e.start_time || e.created_at,
+      riskLevel: (e.risk_level || '').toLowerCase()
+    }))
+
+    eventStats.value = statsRes
+    totalEvents.value = statsRes.total || 0
+    highRiskEvents.value = statsRes.by_risk?.HIGH || 0
+
+    alerts.value = (alertsRes.alerts || []).map(a => ({
+      id: a.id,
+      level: (a.risk_level || '').toLowerCase(),
+      message: getTypeLabel(a.event_type) + '告警',
+      time: a.created_at
+    }))
+
+    alertStats.value = alertStatsRes
+  } catch (error) {
+    console.error('加载数据失败:', error)
+  }
+}
+
 const initTypeChart = () => {
   typeChart = echarts.init(typeChartRef.value)
+  const stats = eventStats.value
   typeChart.setOption({
     tooltip: { trigger: 'item' },
     series: [{
       type: 'pie',
       radius: ['40%', '70%'],
       data: [
-        { value: 45, name: '跌倒检测', itemStyle: { color: '#f56c6c' } },
-        { value: 67, name: '长时间静止', itemStyle: { color: '#e6a23c' } },
-        { value: 44, name: '夜间异常', itemStyle: { color: '#409eff' } }
+        { value: stats.by_type?.FALL || 0, name: '跌倒检测', itemStyle: { color: '#f56c6c' } },
+        { value: stats.by_type?.STILLNESS || 0, name: '长时间静止', itemStyle: { color: '#e6a23c' } },
+        { value: stats.by_type?.NIGHT_ACTIVITY || 0, name: '夜间异常', itemStyle: { color: '#409eff' } }
       ],
       label: {
         show: true,
@@ -328,9 +358,11 @@ const handleResize = () => {
   trendChart?.resize()
 }
 
-onMounted(() => {
+onMounted(async () => {
   updateTime()
   timeInterval = setInterval(updateTime, 1000)
+
+  await loadData()
 
   nextTick(() => {
     initTypeChart()
@@ -746,7 +778,6 @@ onUnmounted(() => {
   color: #67c23a;
 }
 
-/* 自定义滚动条 */
 .events-list::-webkit-scrollbar,
 .alert-list::-webkit-scrollbar {
   width: 6px;
