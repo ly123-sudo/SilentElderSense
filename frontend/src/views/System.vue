@@ -163,7 +163,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -236,7 +236,7 @@ const getStatusTagType = (status) => {
 const loadConfig = async () => {
   loading.value = true
   try {
-    const config = await getAlertConfig(1) // 默认用户ID为1
+    const config = await getAlertConfig()
     if (config) {
       alertConfig.value = {
         ...alertConfig.value,
@@ -256,7 +256,7 @@ const loadConfig = async () => {
 const saveConfig = async () => {
   saving.value = true
   try {
-    await updateAlertConfig(1, {
+    await updateAlertConfig({
       ...alertConfig.value,
       quiet_hours_start: quietHoursStart.value ? formatTime(quietHoursStart.value) : alertConfig.value.quiet_hours_start,
       quiet_hours_end: quietHoursEnd.value ? formatTime(quietHoursEnd.value) : alertConfig.value.quiet_hours_end
@@ -296,7 +296,7 @@ const handleHistoryPageChange = (page) => {
 
 const acknowledgeAlert = async (alertId) => {
   try {
-    await ackAlert(alertId, { user_id: 1 })
+    await ackAlert(alertId)
     ElMessage.success('告警已确认')
     loadAlertHistory()
   } catch (error) {

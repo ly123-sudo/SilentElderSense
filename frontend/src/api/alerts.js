@@ -1,17 +1,17 @@
 import request from './index'
 
 // 获取告警配置
-export function getAlertConfig(userId) {
+export function getAlertConfig() {
   return request({
-    url: `/alerts/config/${userId}`,
+    url: '/alerts/config',
     method: 'get'
   })
 }
 
 // 更新告警配置
-export function updateAlertConfig(userId, data) {
+export function updateAlertConfig(data) {
   return request({
-    url: `/alerts/config/${userId}`,
+    url: '/alerts/config',
     method: 'put',
     data
   })
@@ -44,11 +44,10 @@ export function resendAlert(alertId) {
 }
 
 // 确认告警
-export function acknowledgeAlert(alertId, userId) {
+export function acknowledgeAlert(alertId) {
   return request({
     url: `/alerts/${alertId}/acknowledge`,
-    method: 'post',
-    data: { user_id: userId }
+    method: 'post'
   })
 }
 
