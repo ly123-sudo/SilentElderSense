@@ -21,7 +21,7 @@ class Event(Base):
 
     # 时间信息
     start_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=True)
     duration = Column(Float, nullable=False)  # 持续时长（秒）
 
     # 附加信息
