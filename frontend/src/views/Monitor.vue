@@ -119,11 +119,11 @@
               <div class="section" v-if="allEvents.length > 0">
                 <h4>历史风险记录 ({{ allEvents.length }})</h4>
                 <div class="event-list scrollable">
-                  <div v-for="(event, index) in allEvents.slice(-10).reverse()" :key="index" class="event-item small">
+                  <div v-for="event in allEvents.slice().reverse()" :key="event.id" class="event-item small">
                     <el-tag :type="getRiskTagType(event.risk_level)" size="small">
-                      {{ getRiskLabel(event.risk_level, event.risk_reason) }}
+                      {{ getEventTypeLabel(event.event_type) }} - {{ event.risk_level }}
                     </el-tag>
-                    <span class="time">ID: {{ event.person_id }}</span>
+                    <span class="time">ID: {{ event.person_id }} | {{ event.duration?.toFixed(1) || 0 }}秒</span>
                   </div>
                 </div>
               </div>
@@ -140,7 +140,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { VideoPause, VideoCamera, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createSession, closeSession, getCameraDevices, stopStream } from '@/api/monitor'
-import { getRiskTagType, getRiskLabel } from '@/utils/risk'
+import { getEvents } from '@/api/events'
+import { getRiskTagType, getRiskLabel, getEventTypeLabel } from '@/utils/risk'
 
 // 摄像头
 const cameraDevices = ref([])
@@ -158,9 +159,6 @@ const videoId = ref('')
 const isConnected = ref(false)
 const allEvents = ref([])
 
-// 内存保护：限制历史记录数量
-const MAX_HISTORY_EVENTS = 100
-
 const detectionResult = ref({
   persons: [],
 })
@@ -177,7 +175,18 @@ let videoElement = null
 let cameraStartTime = null
 let fpsCounter = 0
 let fpsInterval = null
+let eventRefreshInterval = null  // 事件刷新定时器
 let canSendFrame = true  // 控制发送节奏
+
+// 获取事件列表
+const fetchEvents = async () => {
+  try {
+    const res = await getEvents({ per_page: 20 })
+    allEvents.value = res.events || []
+  } catch (e) {
+    console.error('获取事件列表失败:', e)
+  }
+}
 
 const formatDuration = (seconds) => {
   const mins = Math.floor(seconds / 60)
@@ -257,6 +266,9 @@ const startCameraDetection = async () => {
       ElMessage.success('摄像头检测已启动')
       startCameraFrameSending()
       startFpsCounter()
+      // 每秒刷新事件列表
+      fetchEvents()
+      eventRefreshInterval = setInterval(fetchEvents, 1000)
     }
 
     ws.onmessage = (event) => {
@@ -270,13 +282,6 @@ const startCameraDetection = async () => {
         } else if (data.type === 'frame') {
           // 与视频检测一致的渲染逻辑
           detectionResult.value = { persons: data.persons || [] }
-          const risky = (data.persons || []).filter(p => p.risk_level !== 'NORMAL')
-          if (risky.length) {
-            allEvents.value.push(...risky)
-            if (allEvents.value.length > MAX_HISTORY_EVENTS) {
-              allEvents.value = allEvents.value.slice(-MAX_HISTORY_EVENTS)
-            }
-          }
           renderFrame(data)
           processedCount.value = data.frame_id || processedCount.value + 1
           latencyMs.value = data.latency_ms || 0
@@ -295,6 +300,13 @@ const startCameraDetection = async () => {
     ws.onclose = () => {
       isConnected.value = false
       stopFpsCounter()
+      // 停止事件刷新
+      if (eventRefreshInterval) {
+        clearInterval(eventRefreshInterval)
+        eventRefreshInterval = null
+      }
+      // 最后刷新一次事件列表
+      fetchEvents()
     }
   } catch (error) {
     console.error('启动摄像头失败:', error)

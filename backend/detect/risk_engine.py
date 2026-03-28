@@ -81,15 +81,17 @@ RISK_REASON_LABELS = {
 }
 
 
-# 判定参数
-FALLEN_CONFIRM_FRAMES = 5            # 连续多少帧认为真正跌倒
-FALLEN_ESCALATE_SECS = 1.0           # 跌倒持续多少秒后升为 HIGH
-STILLNESS_WINDOW_SECS = 30.0         # 静止判定滑动窗口（秒）
-STILLNESS_MOVEMENT_THRESHOLD = 5.0   # movement < 此值认为静止（像素）
-STILLNESS_ESCALATE_SECS = 60.0       # 静止持续多少秒后升为 MEDIUM
-NIGHT_START_HOUR = 22                # 夜间开始（含）
-NIGHT_END_HOUR = 7                   # 夜间结束（不含，即 07:00 前）
-LOST_GRACE_SECS = 1.0                # 人员消失后宽限期（秒），超时则结束事件入库
+# 默认判定参数（当数据库配置不可用时使用）
+DEFAULT_CONFIG = {
+    'FALLEN_CONFIRM_FRAMES': 5,
+    'FALLEN_ESCALATE_SECS': 1.0,
+    'STILLNESS_WINDOW_SECS': 30.0,
+    'STILLNESS_MOVEMENT_THRESHOLD': 5.0,
+    'STILLNESS_ESCALATE_SECS': 60.0,
+    'NIGHT_START_HOUR': 22,
+    'NIGHT_END_HOUR': 7,
+    'LOST_GRACE_SECS': 1.0
+}
 
 
 @dataclass
@@ -140,9 +142,10 @@ class PersonRiskState:
 
 
 class _SessionState:
-    def __init__(self, is_live: bool, user_id: Optional[int] = None):
+    def __init__(self, is_live: bool, user_id: Optional[int] = None, config: Dict = None):
         self.is_live = is_live
         self.user_id = user_id
+        self.config = config or DEFAULT_CONFIG.copy()
         self.persons: Dict[int, PersonRiskState] = {}
         self.pending_removal: Dict[int, float] = {}  # person_id -> 消失时间戳
 
@@ -158,7 +161,7 @@ class RiskEngine:
 
     使用方式:
         engine = RiskEngine()
-        engine.create_session(video_id, is_live=True)
+        engine.create_session(video_id, is_live=True, user_id=1)
         risks = engine.process(video_id, frame_result.persons, time.time())
         engine.close_session(video_id)
     """
@@ -166,12 +169,26 @@ class RiskEngine:
     def __init__(self):
         self._sessions: Dict[str, _SessionState] = {}
 
+    def _load_user_config(self, user_id: int) -> Dict:
+        """从数据库加载用户配置"""
+        try:
+            from .service import get_detection_config_service
+            service = get_detection_config_service()
+            return service.get_runtime_config(user_id)
+        except Exception as e:
+            logger.warning(f"加载用户 {user_id} 检测配置失败，使用默认配置: {e}")
+            return DEFAULT_CONFIG.copy()
+
     def get_user_id(self, video_id: str) -> Optional[int]:
         session = self._sessions.get(video_id)
         return session.user_id if session else None
 
     def create_session(self, video_id: str, is_live: bool = False, user_id: Optional[int] = None):
-        self._sessions[video_id] = _SessionState(is_live=is_live, user_id=user_id)
+        # 加载用户配置
+        config = DEFAULT_CONFIG.copy()
+        if user_id:
+            config = self._load_user_config(user_id)
+        self._sessions[video_id] = _SessionState(is_live=is_live, user_id=user_id, config=config)
 
     def close_session(self, video_id: str, now: Optional[float] = None) -> List[EventChange]:
         """关闭会话，返回所有未结束事件的 ended 变更"""
@@ -212,10 +229,13 @@ class RiskEngine:
             logger.warning(f"[{video_id}] Session not found")
             return [], []
 
+        # 使用会话的配置
+        config = session.config
+
         event_changes: List[EventChange] = []
 
         # 先处理宽限期超时的人员：强制结束其事件
-        expired_pids = [pid for pid, ts in session.pending_removal.items() if now - ts >= LOST_GRACE_SECS]
+        expired_pids = [pid for pid, ts in session.pending_removal.items() if now - ts >= config['LOST_GRACE_SECS']]
         for pid in expired_pids:
             state = session.persons.get(pid)
             if state and state.db_event_type:
@@ -248,9 +268,9 @@ class RiskEngine:
                 del session.pending_removal[person.person_id]
 
             state = session.get_person(person.person_id)
-            fallen_risk, fallen_reason, fallen_event = self._eval_fallen(state, person, now)
+            fallen_risk, fallen_reason, fallen_event = self._eval_fallen(state, person, now, config)
             stillness_risk, stillness_reason, stillness_event = self._eval_stillness(
-                state, person, now, session.is_live
+                state, person, now, session.is_live, config
             )
 
             # FALLEN 进行中时抑制 STILLNESS（重置 stillness 状态，防止虚假积累）
@@ -352,7 +372,7 @@ class RiskEngine:
         return results, event_changes
 
     def _eval_fallen(
-        self, state: PersonRiskState, person: PersonResult, now: float
+        self, state: PersonRiskState, person: PersonResult, now: float, config: Dict
     ) -> Tuple[str, Optional[str], Optional[str]]:
         """返回 (risk_level, risk_reason, event_type)"""
         if person.class_id == 1:
@@ -367,19 +387,19 @@ class RiskEngine:
             return RiskLevel.NORMAL.value, None, None
 
         # 连续帧达到阈值，激活事件
-        if state.fallen_count >= FALLEN_CONFIRM_FRAMES:
+        if state.fallen_count >= config['FALLEN_CONFIRM_FRAMES']:
             if state.fallen_event_start_ts is None:
                 state.fallen_event_start_ts = now
 
             elapsed = now - state.fallen_event_start_ts
-            if elapsed >= FALLEN_ESCALATE_SECS:
+            if elapsed >= config['FALLEN_ESCALATE_SECS']:
                 return RiskLevel.HIGH.value, RiskReason.FALLEN.value, 'FALLEN'
             return RiskLevel.MEDIUM.value, RiskReason.FALLEN.value, 'FALLEN'
 
         return RiskLevel.NORMAL.value, None, None
 
     def _eval_stillness(
-        self, state: PersonRiskState, person: PersonResult, now: float, is_live: bool
+        self, state: PersonRiskState, person: PersonResult, now: float, is_live: bool, config: Dict
     ) -> Tuple[str, Optional[str], Optional[str]]:
         """返回 (risk_level, risk_reason, event_type)"""
         movement = person.movement
@@ -389,23 +409,23 @@ class RiskEngine:
             return RiskLevel.NORMAL.value, None, None
 
         # 添加新条目，更新计数器
-        is_above = movement >= STILLNESS_MOVEMENT_THRESHOLD
+        is_above = movement >= config['STILLNESS_MOVEMENT_THRESHOLD']
         state.movement_window.append(_MovementEntry(ts=now, movement=movement))
         if is_above:
             state.movement_above_threshold_count += 1
 
         # 剔除过期条目，同步更新计数器
-        cutoff = now - STILLNESS_WINDOW_SECS
+        cutoff = now - config['STILLNESS_WINDOW_SECS']
         while state.movement_window and state.movement_window[0].ts < cutoff:
             removed = state.movement_window.popleft()
-            if removed.movement >= STILLNESS_MOVEMENT_THRESHOLD:
+            if removed.movement >= config['STILLNESS_MOVEMENT_THRESHOLD']:
                 state.movement_above_threshold_count -= 1
 
         # 窗口时长不足（允许 10% 容差），认为还在积累数据
         if not state.movement_window:
             return RiskLevel.NORMAL.value, None, None
         window_duration = now - state.movement_window[0].ts
-        if window_duration < STILLNESS_WINDOW_SECS * 0.9:
+        if window_duration < config['STILLNESS_WINDOW_SECS'] * 0.9:
             state.stillness_event_start_ts = None
             return RiskLevel.NORMAL.value, None, None
 
@@ -421,18 +441,17 @@ class RiskEngine:
         elapsed = now - state.stillness_event_start_ts
 
         # 夜间异常（仅实时流）：覆盖普通静止，始终 MEDIUM
-        if is_live and _is_night(now):
+        if is_live and self._is_night(now, config):
             return RiskLevel.MEDIUM.value, RiskReason.NIGHT_ABNORMAL.value, 'NIGHT_ABNORMAL'
 
-        if elapsed >= STILLNESS_ESCALATE_SECS:
+        if elapsed >= config['STILLNESS_ESCALATE_SECS']:
             return RiskLevel.MEDIUM.value, RiskReason.STILLNESS.value, 'STILLNESS'
         return RiskLevel.LOW.value, RiskReason.STILLNESS.value, 'STILLNESS'
 
-
-def _is_night(ts: float) -> bool:
-    """判断时间戳是否处于夜间（22:00-07:00）"""
-    hour = datetime.fromtimestamp(ts).hour
-    return hour >= NIGHT_START_HOUR or hour < NIGHT_END_HOUR
+    def _is_night(self, ts: float, config: Dict) -> bool:
+        """判断时间戳是否处于夜间"""
+        hour = datetime.fromtimestamp(ts).hour
+        return hour >= config['NIGHT_START_HOUR'] or hour < config['NIGHT_END_HOUR']
 
 
 # 全局单例

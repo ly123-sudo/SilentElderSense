@@ -236,6 +236,180 @@
         </div>
       </section>
 
+      <!-- 检测配置 -->
+      <section v-show="activeTab === 'detect'" class="content-section">
+        <div class="settings-grid">
+          <!-- 跌倒检测参数 -->
+          <div class="settings-card">
+            <div class="card-header">
+              <div class="header-icon warning">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+              <div class="header-text">
+                <h3>跌倒检测</h3>
+                <p>跌倒事件的判定参数</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">确认帧数</label>
+                  <input
+                    v-model.number="detectConfig.fallen_confirm_frames"
+                    type="number"
+                    min="1"
+                    max="30"
+                    class="form-input"
+                    placeholder="连续跌倒帧数阈值"
+                  />
+                  <span class="form-hint">连续检测到跌倒的帧数阈值</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">升级时间（秒）</label>
+                  <input
+                    v-model.number="detectConfig.fallen_escalate_secs"
+                    type="number"
+                    min="0.5"
+                    max="10"
+                    step="0.5"
+                    class="form-input"
+                    placeholder="跌倒升级时间"
+                  />
+                  <span class="form-hint">跌倒持续多久后升级为高风险</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 静止检测参数 -->
+          <div class="settings-card">
+            <div class="card-header">
+              <div class="header-icon info">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </div>
+              <div class="header-text">
+                <h3>静止检测</h3>
+                <p>长时间静止的判定参数</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">判定窗口（秒）</label>
+                  <input
+                    v-model.number="detectConfig.stillness_window_secs"
+                    type="number"
+                    min="10"
+                    max="120"
+                    class="form-input"
+                    placeholder="静止判定窗口时长"
+                  />
+                  <span class="form-hint">静止判定的时间窗口</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">移动阈值（像素）</label>
+                  <input
+                    v-model.number="detectConfig.stillness_movement_threshold"
+                    type="number"
+                    min="1"
+                    max="50"
+                    class="form-input"
+                    placeholder="静止判定阈值"
+                  />
+                  <span class="form-hint">移动距离小于此值认为静止</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">升级时间（秒）</label>
+                  <input
+                    v-model.number="detectConfig.stillness_escalate_secs"
+                    type="number"
+                    min="30"
+                    max="300"
+                    class="form-input"
+                    placeholder="静止升级时间"
+                  />
+                  <span class="form-hint">静止持续多久后升级为中风险</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 夜间时段与追踪参数 -->
+          <div class="settings-card">
+            <div class="card-header">
+              <div class="header-icon moon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              </div>
+              <div class="header-text">
+                <h3>时段与追踪</h3>
+                <p>夜间时段与人员追踪参数</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">夜间开始（时）</label>
+                  <input
+                    v-model.number="detectConfig.night_start_hour"
+                    type="number"
+                    min="0"
+                    max="23"
+                    class="form-input"
+                    placeholder="22"
+                  />
+                  <span class="form-hint">夜间时段开始小时</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">夜间结束（时）</label>
+                  <input
+                    v-model.number="detectConfig.night_end_hour"
+                    type="number"
+                    min="0"
+                    max="23"
+                    class="form-input"
+                    placeholder="7"
+                  />
+                  <span class="form-hint">夜间时段结束小时</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">宽限期（秒）</label>
+                  <input
+                    v-model.number="detectConfig.lost_grace_secs"
+                    type="number"
+                    min="0.5"
+                    max="10"
+                    step="0.5"
+                    class="form-input"
+                    placeholder="人员消失宽限期"
+                  />
+                  <span class="form-hint">人员消失后的判定宽限时间</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 保存按钮 -->
+        <div class="actions-bar">
+          <button class="btn-secondary" @click="resetDetectConfig">重置</button>
+          <button class="btn-primary" :disabled="detectSaving" @click="saveDetectConfig">
+            <svg v-if="detectSaving" class="spinner" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.416" stroke-dashoffset="10"/>
+            </svg>
+            <span>{{ detectSaving ? '保存中...' : '保存配置' }}</span>
+          </button>
+        </div>
+      </section>
+
       <!-- 告警历史 -->
       <section v-show="activeTab === 'history'" class="content-section">
         <div class="table-card">
@@ -278,7 +452,7 @@
                         {{ getRiskLabel(alert.risk_level) }}
                       </span>
                     </td>
-                    <td class="cell-method">{{ alert.alert_method || '-' }}</td>
+                    <td class="cell-method">{{ alert.alert_type || '-' }}</td>
                     <td>
                       <span class="status-badge" :class="getStatusClass(alert.status)">
                         <span class="status-dot"></span>
@@ -445,6 +619,10 @@ import {
   resendAlert as resendAlertApi,
   getAlertStats
 } from '@/api/alerts'
+import {
+  getDetectConfig,
+  updateDetectConfig
+} from '@/api/detect'
 import { ElMessage } from 'element-plus'
 
 // 标签页配置
@@ -455,6 +633,17 @@ const tabs = [
     icon: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
       h('path', { d: 'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9' }),
       h('path', { d: 'M13.73 21a2 2 0 0 1-3.46 0' })
+    ])
+  },
+  {
+    key: 'detect',
+    label: '检测配置',
+    icon: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+      h('circle', { cx: '12', cy: '12', r: '3' }),
+      h('path', { d: 'M12 1v6m0 6v10' }),
+      h('path', { d: 'M4.22 4.22l4.24 4.24m7.08 7.08l4.24 4.24' }),
+      h('path', { d: 'M1 12h6m6 0h10' }),
+      h('path', { d: 'M4.22 19.78l4.24-4.24m7.08-7.08l4.24-4.24' })
     ])
   },
   {
@@ -503,6 +692,19 @@ const alertConfig = ref({
 
 const quietHoursStart = ref('22:00')
 const quietHoursEnd = ref('07:00')
+
+// 检测配置
+const detectConfig = ref({
+  fallen_confirm_frames: 5,
+  fallen_escalate_secs: 1.0,
+  stillness_window_secs: 30.0,
+  stillness_movement_threshold: 5.0,
+  stillness_escalate_secs: 60.0,
+  night_start_hour: 22,
+  night_end_hour: 7,
+  lost_grace_secs: 1.0
+})
+const detectSaving = ref(false)
 
 // 告警历史
 const alertHistory = ref([])
@@ -610,6 +812,42 @@ const resetConfig = () => {
   loadConfig()
 }
 
+// 加载检测配置
+const loadDetectConfig = async () => {
+  try {
+    const config = await getDetectConfig()
+    if (config) {
+      detectConfig.value = { ...detectConfig.value, ...config }
+    }
+  } catch (error) {
+    console.error('加载检测配置失败:', error)
+  }
+}
+
+// 保存检测配置
+const saveDetectConfig = async () => {
+  detectSaving.value = true
+  try {
+    await updateDetectConfig(detectConfig.value)
+    ElMessage({
+      message: '检测配置保存成功',
+      type: 'success'
+    })
+  } catch (error) {
+    ElMessage({
+      message: '保存失败: ' + error.message,
+      type: 'error'
+    })
+  } finally {
+    detectSaving.value = false
+  }
+}
+
+// 重置检测配置
+const resetDetectConfig = () => {
+  loadDetectConfig()
+}
+
 // 加载告警历史
 const loadAlertHistory = async () => {
   historyLoading.value = true
@@ -675,6 +913,7 @@ const loadStats = async () => {
 
 onMounted(() => {
   loadConfig()
+  loadDetectConfig()
   loadAlertHistory()
   loadStats()
 })
@@ -870,6 +1109,16 @@ onMounted(() => {
   color: #a78bfa;
 }
 
+.header-icon.warning {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.header-icon.info {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success-400);
+}
+
 .header-text h3 {
   font-size: 18px;
   font-weight: 600;
@@ -932,6 +1181,12 @@ onMounted(() => {
 
 .form-input::placeholder {
   color: var(--neutral-400);
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--neutral-400);
+  margin-top: 4px;
 }
 
 /* 告警等级 */

@@ -16,9 +16,12 @@ import cv2
 import numpy as np
 from core import FallDetector
 from .risk_engine import risk_engine, RISK_COLORS_BGR, RISK_REASON_LABELS
+from .service import get_detection_config_service
+from .models import DetectionConfig
 from auth.utils import token_required
 from auth.models import get_db
 from events.models import Event
+from alerts.service import AlertService
 from datetime import datetime
 
 detect_bp = Blueprint('detect', __name__)
@@ -216,37 +219,57 @@ async def process_video_ws(video_id: str):
 # ── 实时帧检测接口（供摄像头使用） ──────────────────────────
 
 @detect_bp.route('/api/session/create', methods=['POST'])
+@token_required
 async def create_session():
-    """创建实时检测会话（可选认证，有 token 则持久化）"""
+    """创建实时检测会话（需要登录）"""
+    user_id = request.current_user['user_id']
+
     detector = get_detector()
     video_id = detector.create_session()
-
-    # 尝试获取 user_id（可选）
-    user_id = None
-    try:
-        # 从 request 获取 token 信息（如果有）
-        if hasattr(request, 'current_user') and request.current_user:
-            user_id = request.current_user.get('user_id')
-    except Exception:
-        pass
-
     risk_engine.create_session(video_id, is_live=True, user_id=user_id)
-    return jsonify({'video_id': video_id})
+    return jsonify({'video_id': video_id, 'user_id': user_id})
 
 
 @detect_bp.route('/api/session/close/<video_id>', methods=['POST'])
+@token_required
 async def close_session(video_id: str):
     """关闭实时检测会话"""
+    user_id = request.current_user['user_id']
     detector = get_detector()
     now = time.time()
-    user_id = risk_engine.get_user_id(video_id)
     ended_changes = risk_engine.close_session(video_id, now=now)
     detector.close_session(video_id)
-    if user_id and ended_changes:
-        db = next(get_db())
+
+    if ended_changes:
+        from auth.models import SessionLocal
+        db = SessionLocal()
+        try:
+            for ch in ended_changes:
+                _persist_event_change(db, ch, video_id, user_id)
+            db.commit()
+        except Exception as e:
+            print(f"[ERROR] 事件持久化失败: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
+        # 告警触发（在事务提交后单独处理）
         for ch in ended_changes:
-            _persist_event_change(db, ch, video_id, user_id, now)
-        db.commit()
+            if ch.change_type == 'ended' and ch.risk_level in ['HIGH', 'MEDIUM']:
+                try:
+                    alert_service = AlertService()
+                    # duration 从 start_time 和 end_time 计算
+                    duration = ch.end_ts - ch.start_ts if ch.end_ts and ch.start_ts else 0
+                    alert_service.trigger_alert(
+                        user_id=user_id,
+                        event_id=None,
+                        event_type=ch.event_type,
+                        risk_level=ch.risk_level,
+                        duration=duration
+                    )
+                except Exception as e:
+                    print(f"[WARN] 告警触发失败: {e}")
+
     return jsonify({'success': True})
 
 
@@ -263,6 +286,44 @@ async def detect_ws(video_id: str):
     processed_count = 0
     skipped_count = 0
 
+    # 活跃事件跟踪：{(person_id, event_type): last_update_time}
+    active_events = {}
+    last_db_update = time.time()
+
+    async def update_active_events_end_time():
+        """每秒更新活跃事件的 end_time"""
+        nonlocal last_db_update
+        now = time.time()
+
+        # 每秒更新一次
+        if now - last_db_update < 1.0:
+            return
+
+        if not active_events:
+            return
+
+        user_id = risk_engine.get_user_id(video_id)
+        if not user_id:
+            return
+
+        from auth.models import SessionLocal
+        db = SessionLocal()
+        try:
+            now_dt = datetime.fromtimestamp(now)
+            for (person_id, event_type) in active_events.keys():
+                db.query(Event).filter(
+                    Event.video_id == video_id,
+                    Event.person_id == person_id,
+                    Event.event_type == event_type,
+                ).update({'end_time': now_dt})
+            db.commit()
+            last_db_update = now
+        except Exception as e:
+            print(f"[ERROR] 更新 end_time 失败: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
     async def process_frame(frame, frame_ts):
         """处理单个帧"""
         nonlocal processed_count
@@ -277,10 +338,26 @@ async def detect_ws(video_id: str):
         if event_changes:
             user_id = risk_engine.get_user_id(video_id)
             if user_id:
-                db = next(get_db())
-                for ch in event_changes:
-                    _persist_event_change(db, ch, video_id, user_id, now)
-                db.commit()
+                from auth.models import SessionLocal
+                db = SessionLocal()
+                try:
+                    for ch in event_changes:
+                        _persist_event_change(db, ch, video_id, user_id)
+                        # 更新活跃事件跟踪
+                        key = (ch.person_id, ch.event_type)
+                        if ch.change_type == 'ended':
+                            active_events.pop(key, None)
+                        else:
+                            active_events[key] = now
+                    db.commit()
+                except Exception as e:
+                    print(f"[ERROR] 事件持久化失败: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
+        # 每秒更新活跃事件的 end_time
+        await update_active_events_end_time()
 
         # 绘制检测框
         for risk in risk_results:
@@ -361,9 +438,10 @@ async def detect_ws(video_id: str):
             break
 
 
-def _persist_event_change(db, ch, video_id: str, user_id: int, now: float):
+def _persist_event_change(db, ch, video_id: str, user_id: int):
     """将事件变更写入数据库"""
     if ch.change_type == 'started':
+        # 事件开始：使用 EventChange 中的时间
         event = Event(
             user_id=user_id,
             video_id=video_id,
@@ -371,30 +449,32 @@ def _persist_event_change(db, ch, video_id: str, user_id: int, now: float):
             event_type=ch.event_type,
             risk_level=ch.risk_level,
             start_time=datetime.fromtimestamp(ch.start_ts),
-            end_time=None,
-            duration=0.0,
+            end_time=datetime.fromtimestamp(ch.start_ts),
             frame_count=ch.frame_count,
             status='pending',
         )
         db.add(event)
     elif ch.change_type == 'risk_upgraded':
+        # 风险升级：使用 start_time 精确匹配事件
         db.query(Event).filter(
             Event.video_id == video_id,
             Event.person_id == ch.person_id,
             Event.event_type == ch.event_type,
-            Event.end_time.is_(None),
-        ).update({'risk_level': ch.risk_level, 'frame_count': ch.frame_count})
-    elif ch.change_type == 'ended':
-        end_dt = datetime.fromtimestamp(ch.end_ts)
-        duration = ch.end_ts - ch.start_ts
-        db.query(Event).filter(
-            Event.video_id == video_id,
-            Event.person_id == ch.person_id,
-            Event.event_type == ch.event_type,
-            Event.end_time.is_(None),
+            Event.start_time == datetime.fromtimestamp(ch.start_ts),
         ).update({
-            'end_time': end_dt,
-            'duration': duration,
+            'risk_level': ch.risk_level,
+            'frame_count': ch.frame_count,
+            'end_time': datetime.fromtimestamp(ch.start_ts),
+        })
+    elif ch.change_type == 'ended':
+        # 事件结束：使用 start_time 精确匹配事件
+        db.query(Event).filter(
+            Event.video_id == video_id,
+            Event.person_id == ch.person_id,
+            Event.event_type == ch.event_type,
+            Event.start_time == datetime.fromtimestamp(ch.start_ts),
+        ).update({
+            'end_time': datetime.fromtimestamp(ch.end_ts),
             'frame_count': ch.frame_count,
         })
 
@@ -423,3 +503,54 @@ def build_response(detected: bool, risk_results) -> dict:
             for r in risk_results
         ],
     }
+
+
+# ── 检测配置接口 ──────────────────────────
+
+@detect_bp.route('/api/detect/config', methods=['GET'])
+@token_required
+async def get_detect_config():
+    """获取当前用户的检测配置"""
+    user_id = request.current_user['user_id']
+    service = get_detection_config_service()
+    config = service.get_config(user_id)
+    return jsonify(config.to_dict())
+
+
+@detect_bp.route('/api/detect/config', methods=['PUT'])
+@token_required
+async def update_detect_config():
+    """
+    更新当前用户的检测配置
+
+    请求体:
+    {
+        "fallen_confirm_frames": 5,
+        "fallen_escalate_secs": 1.0,
+        "stillness_window_secs": 30.0,
+        "stillness_movement_threshold": 5.0,
+        "stillness_escalate_secs": 60.0,
+        "night_start_hour": 22,
+        "night_end_hour": 7,
+        "lost_grace_secs": 1.0
+    }
+    """
+    user_id = request.current_user['user_id']
+    data = await request.get_json()
+
+    # 过滤有效字段
+    valid_fields = [
+        'fallen_confirm_frames', 'fallen_escalate_secs',
+        'stillness_window_secs', 'stillness_movement_threshold',
+        'stillness_escalate_secs', 'night_start_hour',
+        'night_end_hour', 'lost_grace_secs'
+    ]
+    kwargs = {k: v for k, v in data.items() if k in valid_fields}
+
+    service = get_detection_config_service()
+    config = service.update_config(user_id, **kwargs)
+
+    return jsonify({
+        'message': '检测配置更新成功',
+        'config': config.to_dict()
+    })
